@@ -7,11 +7,12 @@ use Illuminate\Database\Eloquent\Model;
 class Role extends Model
 {
     protected $fillable = [
-        'name' ,
+        'name',
         'description'
     ];
-    public Function uesrs()
+
+    public function users()
     {
-        return $this->hasMany(Uesr::class) ;
+        return $this->hasMany(User::class);
     }
 }

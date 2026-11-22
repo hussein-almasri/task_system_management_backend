@@ -50,4 +50,24 @@ class User extends Authenticatable
         return $this->hasMany(Task::class, 'created_by');
     }
 
+    public function taskHistories()
+    {
+        return $this->hasMany(TaskHistory::class, 'user_id');
+    }
+
+    public function notifications()
+    {
+        return $this->hasMany(Notification::class, 'user_id');
+    }
+
+    public function taskComments()
+    {
+        return $this->hasMany(TaskComment::class);
+    }
+
+    public function taskAttachments()
+    {
+        return $this->hasMany(TaskAttachment::class);
+    }
+    
 }

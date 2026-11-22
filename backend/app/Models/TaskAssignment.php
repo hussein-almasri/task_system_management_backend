@@ -12,8 +12,8 @@ class TaskAssignment extends Model
         return $this->belongsTo(Task::class);
     } 
 
-      public function user()
-      {
-        return $this->belongeTo(User::class) ;
-      } 
+    public function user()
+    {
+        return $this->belongsTo(User::class);
+    }
 }

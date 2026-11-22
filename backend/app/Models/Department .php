@@ -8,9 +8,9 @@ class Department  extends Model
 {
     protected $table = 'department';
 
-    public Function users()
+   public function users()
     {
-        return $this->hasMany(Uesr::class);
+        return $this->hasMany(User::class);
     }
 
 }
