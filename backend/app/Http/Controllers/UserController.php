@@ -9,6 +9,7 @@ use App\Http\Resources\UserResource;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 
 class UserController extends Controller
@@ -73,8 +74,17 @@ class UserController extends Controller
 
     public function updateStatus(UpdateUserStatusRequest $request, User $user): UserResource
     {
-        $user->status = $request->validated('status');
-        $user->save();
+        $status = $request->validated('status');
+
+        DB::transaction(function () use ($user, $status): void {
+            $user->status = $status;
+            $user->save();
+
+            if ($status === 'inactive') {
+                $user->tokens()->delete();
+            }
+        });
+
         $user->load(['role', 'department']);
 
         return new UserResource($user);

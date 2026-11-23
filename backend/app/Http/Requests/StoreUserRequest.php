@@ -12,7 +12,7 @@ class StoreUserRequest extends UserManagementRequest
         return [
             'name' => ['required', 'string', 'max:255'],
             'email' => ['required', 'string', 'email', 'max:255', 'unique:users,email'],
-            'password' => ['required', 'string', 'min:8'],
+            'password' => ['required', 'string', 'min:8', 'max:128'],
             'role_id' => ['required', 'integer', 'exists:roles,id'],
             'department_id' => ['nullable', 'integer', 'exists:department,id'],
             'status' => ['sometimes', 'required', Rule::in(['active', 'inactive'])],

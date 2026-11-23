@@ -36,6 +36,17 @@ class AuthorizationMiddlewareTest extends TestCase
             ->assertJsonPath('message', 'You do not have permission to access this resource.');
     }
 
+    public function test_an_inactive_user_is_forbidden_by_role_middleware(): void
+    {
+        $user = $this->userWithRole('admin');
+        $user->status = 'inactive';
+        Sanctum::actingAs($user);
+
+        $this->getJson('/_test/authorization')
+            ->assertForbidden()
+            ->assertJsonPath('message', 'Your account is inactive.');
+    }
+
     public function test_an_unauthenticated_user_cannot_reach_a_role_protected_route(): void
     {
         $this->getJson('/_test/authorization')
@@ -46,6 +57,7 @@ class AuthorizationMiddlewareTest extends TestCase
     private function userWithRole(string $roleName): User
     {
         $user = new User;
+        $user->status = 'active';
         $user->setRelation('role', new Role(['name' => $roleName]));
 
         return $user;

@@ -16,7 +16,7 @@ class UpdateUserRequest extends UserManagementRequest
         return [
             'name' => ['sometimes', 'required', 'string', 'max:255'],
             'email' => ['sometimes', 'required', 'string', 'email', 'max:255', Rule::unique('users', 'email')->ignore($user)],
-            'password' => ['sometimes', 'required', 'string', 'min:8'],
+            'password' => ['sometimes', 'required', 'string', 'min:8', 'max:128'],
             'role_id' => ['sometimes', 'required', 'integer', 'exists:roles,id'],
             'department_id' => ['sometimes', 'nullable', 'integer', 'exists:department,id'],
             'status' => ['sometimes', 'required', Rule::in(['active', 'inactive'])],

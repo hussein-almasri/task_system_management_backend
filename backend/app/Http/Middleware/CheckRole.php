@@ -12,10 +12,16 @@ class CheckRole
     {
         $user = $request->user();
 
-        if (!$user) {
+        if (! $user) {
             return response()->json([
                 'message' => 'Unauthenticated.',
             ], 401);
+        }
+
+        if ($user->status !== 'active') {
+            return response()->json([
+                'message' => 'Your account is inactive.',
+            ], 403);
         }
 
         if (! $user->role || ! in_array($user->role->name, $roles, true)) {
