@@ -7,9 +7,11 @@ use App\Http\Requests\UpdateTaskRequest;
 use App\Http\Resources\TaskResource;
 use App\Models\Task;
 use App\Models\User;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Http\Response;
+use Illuminate\Support\Facades\DB;
 
 class TaskController extends Controller
 {
@@ -86,10 +88,33 @@ class TaskController extends Controller
         return new TaskResource($task);
     }
 
-    public function destroy(Request $request, Task $task): Response
+    public function destroy(Request $request, Task $task): Response|JsonResponse
     {
         $this->ensureManagerOwnsTask($request->user(), $task);
-        $task->delete();
+
+        $deleted = DB::transaction(function () use ($task): bool {
+            $task = Task::query()->whereKey($task->getKey())->lockForUpdate()->firstOrFail();
+
+            if (
+                $task->taskAssignments()->exists()
+                || $task->histories()->exists()
+                || $task->notifications()->exists()
+                || $task->comments()->exists()
+                || $task->attachments()->exists()
+            ) {
+                return false;
+            }
+
+            $task->delete();
+
+            return true;
+        });
+
+        if (! $deleted) {
+            return response()->json([
+                'message' => 'The task cannot be deleted while related records exist.',
+            ], Response::HTTP_CONFLICT);
+        }
 
         return response()->noContent();
     }

@@ -83,6 +83,15 @@ class TaskManagementTest extends TestCase
             $table->foreign('department_id')->references('id')->on('department')->restrictOnDelete()->restrictOnUpdate();
         });
 
+        foreach (['task_history', 'notifications', 'task_comments', 'task_attachments'] as $tableName) {
+            $schema->create($tableName, function (Blueprint $table): void {
+                $table->increments('id');
+                $table->unsignedInteger('task_id');
+                $table->index('task_id');
+                $table->foreign('task_id')->references('id')->on('tasks')->restrictOnDelete()->restrictOnUpdate();
+            });
+        }
+
         $schema->create('task_assignments', function (Blueprint $table): void {
             $table->increments('id');
             $table->unsignedInteger('task_id');
@@ -153,6 +162,36 @@ class TaskManagementTest extends TestCase
 
         $this->deleteJson('/api/tasks/'.$firstTask->id)->assertNoContent();
         $this->assertDatabaseMissing('tasks', ['id' => $firstTask->id]);
+    }
+
+    public function test_delete_preserves_tasks_that_have_restrictive_child_records(): void
+    {
+        $department = $this->createDepartment('Engineering');
+        $admin = $this->createUser('admin', null, 'Admin', 'admin@example.test');
+        $task = $this->createTask($admin, $department, 'Referenced task');
+
+        foreach (['task_assignments', 'task_history', 'notifications', 'task_comments', 'task_attachments'] as $table) {
+            $values = ['task_id' => $task->id];
+
+            if ($table === 'task_assignments') {
+                $employee = $this->createUser('employee', $department, 'Employee', 'employee@example.test');
+                $values['user_id'] = $employee->id;
+                $values['is_responsible'] = false;
+            }
+
+            DB::table($table)->insert($values);
+        }
+
+        Sanctum::actingAs($admin->load('role'));
+
+        $this->deleteJson('/api/tasks/'.$task->id)
+            ->assertConflict()
+            ->assertJsonPath('message', 'The task cannot be deleted while related records exist.');
+
+        $this->assertDatabaseHas('tasks', ['id' => $task->id]);
+        foreach (['task_assignments', 'task_history', 'notifications', 'task_comments', 'task_attachments'] as $table) {
+            $this->assertDatabaseHas($table, ['task_id' => $task->id]);
+        }
     }
 
     public function test_department_manager_creates_tasks_in_their_department_only(): void
