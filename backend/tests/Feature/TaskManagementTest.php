@@ -269,6 +269,233 @@ class TaskManagementTest extends TestCase
         $this->getJson('/api/tasks/'.$otherDepartmentTask->id)->assertNotFound();
     }
 
+    public function test_admin_can_assign_employees_across_departments_and_keep_one_responsible_assignee(): void
+    {
+        $department = $this->createDepartment('Engineering');
+        $otherDepartment = $this->createDepartment('Finance');
+        $admin = $this->createUser('admin', null, 'Admin', 'admin@example.test');
+        $firstEmployee = $this->createUser('employee', $department, 'First Employee', 'first@example.test');
+        $secondEmployee = $this->createUser('employee', $otherDepartment, 'Second Employee', 'second@example.test');
+        $thirdEmployee = $this->createUser('employee', $department, 'Third Employee', 'third@example.test');
+        $task = $this->createTask($admin, $department, 'Team task');
+        Sanctum::actingAs($admin->load('role'));
+
+        $this->postJson('/api/tasks/'.$task->id.'/assignments', [
+            'user_ids' => [$firstEmployee->id, $secondEmployee->id],
+            'responsible_user_id' => $firstEmployee->id,
+        ])
+            ->assertOk()
+            ->assertJsonCount(2, 'data')
+            ->assertJsonPath('data.0.user.email', 'first@example.test')
+            ->assertJsonPath('data.0.is_responsible', true)
+            ->assertJsonPath('data.1.user.email', 'second@example.test')
+            ->assertJsonPath('data.1.is_responsible', false);
+
+        $this->postJson('/api/tasks/'.$task->id.'/assignments', [
+            'user_ids' => [$thirdEmployee->id],
+            'responsible_user_id' => $thirdEmployee->id,
+        ])
+            ->assertOk()
+            ->assertJsonCount(3, 'data')
+            ->assertJsonPath('data.2.is_responsible', true);
+
+        $this->assertSame(3, DB::table('task_assignments')->where('task_id', $task->id)->count());
+        $this->assertSame(
+            1,
+            DB::table('task_assignments')
+                ->where('task_id', $task->id)
+                ->where('is_responsible', true)
+                ->count(),
+        );
+    }
+
+    public function test_department_manager_can_assign_active_employees_from_their_department(): void
+    {
+        $department = $this->createDepartment('Engineering');
+        $manager = $this->createUser('department_manager', $department, 'Manager', 'manager@example.test');
+        $employee = $this->createUser('employee', $department, 'Employee', 'employee@example.test');
+        $task = $this->createTask($manager, $department, 'Department task');
+        Sanctum::actingAs($manager->load('role'));
+
+        $this->postJson('/api/tasks/'.$task->id.'/assignments', [
+            'user_ids' => [$employee->id],
+            'responsible_user_id' => $employee->id,
+        ])
+            ->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.user_id', $employee->id)
+            ->assertJsonPath('data.0.is_responsible', true);
+    }
+
+    public function test_department_manager_cannot_assign_employees_from_another_department(): void
+    {
+        $department = $this->createDepartment('Engineering');
+        $otherDepartment = $this->createDepartment('Finance');
+        $manager = $this->createUser('department_manager', $department, 'Manager', 'manager@example.test');
+        $otherEmployee = $this->createUser('employee', $otherDepartment, 'Other Employee', 'other@example.test');
+        $task = $this->createTask($manager, $department, 'Department task');
+        Sanctum::actingAs($manager->load('role'));
+
+        $this->postJson('/api/tasks/'.$task->id.'/assignments', [
+            'user_ids' => [$otherEmployee->id],
+            'responsible_user_id' => $otherEmployee->id,
+        ])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('user_ids');
+
+        $this->assertSame(0, $task->taskAssignments()->count());
+    }
+
+    public function test_department_manager_cannot_assign_users_to_a_task_outside_their_department(): void
+    {
+        $department = $this->createDepartment('Engineering');
+        $otherDepartment = $this->createDepartment('Finance');
+        $manager = $this->createUser('department_manager', $department, 'Manager', 'manager@example.test');
+        $employee = $this->createUser('employee', $department, 'Employee', 'employee@example.test');
+        $otherTask = $this->createTask($manager, $otherDepartment, 'Other department task');
+        Sanctum::actingAs($manager->load('role'));
+
+        $this->postJson('/api/tasks/'.$otherTask->id.'/assignments', [
+            'user_ids' => [$employee->id],
+            'responsible_user_id' => $employee->id,
+        ])->assertNotFound();
+    }
+
+    public function test_employees_cannot_assign_users_to_tasks(): void
+    {
+        $department = $this->createDepartment('Engineering');
+        $employee = $this->createUser('employee', $department, 'Employee', 'employee@example.test');
+        $otherEmployee = $this->createUser('employee', $department, 'Other Employee', 'other@example.test');
+        $task = $this->createTask($employee, $department, 'Task');
+        Sanctum::actingAs($employee->load('role'));
+
+        $this->postJson('/api/tasks/'.$task->id.'/assignments', [
+            'user_ids' => [$otherEmployee->id],
+            'responsible_user_id' => $otherEmployee->id,
+        ])->assertForbidden();
+    }
+
+    public function test_inactive_and_non_employee_users_cannot_be_assigned(): void
+    {
+        $department = $this->createDepartment('Engineering');
+        $admin = $this->createUser('admin', null, 'Admin', 'admin@example.test');
+        $inactiveEmployee = $this->createUser('employee', $department, 'Inactive Employee', 'inactive@example.test');
+        $inactiveEmployee->status = 'inactive';
+        $inactiveEmployee->save();
+        $unassignedEmployee = $this->createUser('employee', null, 'Unassigned Employee', 'unassigned@example.test');
+        $manager = $this->createUser('department_manager', $department, 'Manager', 'manager@example.test');
+        $task = $this->createTask($admin, $department, 'Task');
+        Sanctum::actingAs($admin->load('role'));
+
+        $this->postJson('/api/tasks/'.$task->id.'/assignments', [
+            'user_ids' => [$inactiveEmployee->id],
+            'responsible_user_id' => $inactiveEmployee->id,
+        ])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('user_ids');
+
+        $this->postJson('/api/tasks/'.$task->id.'/assignments', [
+            'user_ids' => [$unassignedEmployee->id],
+            'responsible_user_id' => $unassignedEmployee->id,
+        ])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('user_ids');
+
+        $this->postJson('/api/tasks/'.$task->id.'/assignments', [
+            'user_ids' => [$manager->id],
+            'responsible_user_id' => $manager->id,
+        ])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('user_ids');
+    }
+
+    public function test_responsible_user_must_be_in_the_user_ids_array(): void
+    {
+        $department = $this->createDepartment('Engineering');
+        $admin = $this->createUser('admin', null, 'Admin', 'admin@example.test');
+        $employee = $this->createUser('employee', $department, 'Employee', 'employee@example.test');
+        $otherEmployee = $this->createUser('employee', $department, 'Other Employee', 'other@example.test');
+        $task = $this->createTask($admin, $department, 'Task');
+        Sanctum::actingAs($admin->load('role'));
+
+        $this->postJson('/api/tasks/'.$task->id.'/assignments', [
+            'user_ids' => [$employee->id],
+            'responsible_user_id' => $otherEmployee->id,
+        ])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('responsible_user_id');
+
+        $this->assertSame(0, $task->taskAssignments()->count());
+    }
+
+    public function test_duplicate_ids_are_rejected_and_repeated_assignment_requests_do_not_duplicate_rows(): void
+    {
+        $department = $this->createDepartment('Engineering');
+        $admin = $this->createUser('admin', null, 'Admin', 'admin@example.test');
+        $employee = $this->createUser('employee', $department, 'Employee', 'employee@example.test');
+        $task = $this->createTask($admin, $department, 'Task');
+        Sanctum::actingAs($admin->load('role'));
+
+        $this->postJson('/api/tasks/'.$task->id.'/assignments', [
+            'user_ids' => [$employee->id, $employee->id],
+            'responsible_user_id' => $employee->id,
+        ])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('user_ids.1');
+
+        $payload = [
+            'user_ids' => [$employee->id],
+            'responsible_user_id' => $employee->id,
+        ];
+        $this->postJson('/api/tasks/'.$task->id.'/assignments', $payload)->assertOk();
+        $this->postJson('/api/tasks/'.$task->id.'/assignments', $payload)->assertOk();
+
+        $this->assertSame(1, $task->taskAssignments()->count());
+        $this->assertSame(1, $task->taskAssignments()->where('is_responsible', true)->count());
+    }
+
+    public function test_authorized_users_can_view_assignments_and_unauthorized_users_cannot(): void
+    {
+        $department = $this->createDepartment('Engineering');
+        $otherDepartment = $this->createDepartment('Finance');
+        $admin = $this->createUser('admin', null, 'Admin', 'admin@example.test');
+        $manager = $this->createUser('department_manager', $department, 'Manager', 'manager@example.test');
+        $employee = $this->createUser('employee', $department, 'Employee', 'employee@example.test');
+        $otherEmployee = $this->createUser('employee', $department, 'Other Employee', 'other@example.test');
+        $otherManager = $this->createUser('department_manager', $otherDepartment, 'Other Manager', 'other-manager@example.test');
+        $task = $this->createTask($manager, $department, 'Task');
+        $this->assignTask($task, $employee);
+
+        Sanctum::actingAs($admin->load('role'));
+        $this->getJson('/api/tasks/'.$task->id.'/assignments')
+            ->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonStructure([
+                'data' => [[
+                    'id',
+                    'user_id',
+                    'user' => ['id', 'name', 'email'],
+                    'is_responsible',
+                    'assigned_at',
+                ]],
+            ])
+            ->assertJsonPath('data.0.user.name', 'Employee')
+            ->assertJsonPath('data.0.user.email', 'employee@example.test')
+            ->assertJsonPath('data.0.is_responsible', false);
+
+        Sanctum::actingAs($manager->load('role'));
+        $this->getJson('/api/tasks/'.$task->id.'/assignments')->assertOk();
+
+        Sanctum::actingAs($employee->load('role'));
+        $this->getJson('/api/tasks/'.$task->id.'/assignments')->assertOk();
+
+        Sanctum::actingAs($otherEmployee->load('role'));
+        $this->getJson('/api/tasks/'.$task->id.'/assignments')->assertNotFound();
+
+        Sanctum::actingAs($otherManager->load('role'));
+        $this->getJson('/api/tasks/'.$task->id.'/assignments')->assertNotFound();
+    }
+
     public function test_employee_cannot_create_update_or_delete_tasks(): void
     {
         $department = $this->createDepartment('Engineering');

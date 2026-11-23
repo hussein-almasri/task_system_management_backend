@@ -6,7 +6,7 @@ use App\Http\Requests\StoreTaskRequest;
 use App\Http\Requests\UpdateTaskRequest;
 use App\Http\Resources\TaskResource;
 use App\Models\Task;
-use App\Models\User;
+use App\Services\TaskAccess;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
@@ -15,6 +15,8 @@ use Illuminate\Support\Facades\DB;
 
 class TaskController extends Controller
 {
+    public function __construct(private readonly TaskAccess $taskAccess) {}
+
     public function index(Request $request): AnonymousResourceCollection
     {
         $user = $request->user();
@@ -60,7 +62,7 @@ class TaskController extends Controller
 
     public function show(Request $request, Task $task): TaskResource
     {
-        $this->ensureVisibleTo($request->user(), $task);
+        $this->taskAccess->ensureViewableTo($request->user(), $task);
         $task->load(['creator:id,name', 'department:id,name']);
 
         return new TaskResource($task);
@@ -69,7 +71,7 @@ class TaskController extends Controller
     public function update(UpdateTaskRequest $request, Task $task): TaskResource
     {
         $user = $request->user();
-        $this->ensureManagerOwnsTask($user, $task);
+        $this->taskAccess->ensureManageableBy($user, $task);
         $validated = $request->validated();
 
         foreach (['title', 'description', 'status', 'priority', 'due_date'] as $field) {
@@ -90,7 +92,7 @@ class TaskController extends Controller
 
     public function destroy(Request $request, Task $task): Response|JsonResponse
     {
-        $this->ensureManagerOwnsTask($request->user(), $task);
+        $this->taskAccess->ensureManageableBy($request->user(), $task);
 
         $deleted = DB::transaction(function () use ($task): bool {
             $task = Task::query()->whereKey($task->getKey())->lockForUpdate()->firstOrFail();
@@ -117,33 +119,5 @@ class TaskController extends Controller
         }
 
         return response()->noContent();
-    }
-
-    private function ensureVisibleTo(User $user, Task $task): void
-    {
-        $this->ensureManagerOwnsTask($user, $task);
-
-        if ($user->role->name === 'employee') {
-            if (
-                $user->department_id === null
-                || (int) $task->department_id !== (int) $user->department_id
-                || ! $task->taskAssignments()->where('user_id', $user->id)->exists()
-            ) {
-                abort(404);
-            }
-        }
-    }
-
-    private function ensureManagerOwnsTask(User $user, Task $task): void
-    {
-        if (
-            $user->role->name === 'department_manager'
-            && (
-                $user->department_id === null
-                || (int) $task->department_id !== (int) $user->department_id
-            )
-        ) {
-            abort(404);
-        }
     }
 }

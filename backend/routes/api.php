@@ -4,6 +4,7 @@
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\DepartmentController;
 use App\Http\Controllers\RoleController;
+use App\Http\Controllers\TaskAssignmentController;
 use App\Http\Controllers\TaskController;
 use App\Http\Controllers\UserController;
 use Illuminate\Http\Request;
@@ -40,11 +41,13 @@ Route::middleware(['auth:sanctum', 'active'])->group(function () {
     Route::middleware('role:admin,department_manager,employee')->group(function () {
         Route::get('/tasks', [TaskController::class, 'index']);
         Route::get('/tasks/{task}', [TaskController::class, 'show'])->whereNumber('task');
+        Route::get('/tasks/{task}/assignments', [TaskAssignmentController::class, 'index'])->whereNumber('task');
     });
 
     Route::middleware('role:admin,department_manager')->group(function () {
         Route::post('/tasks', [TaskController::class, 'store']);
         Route::put('/tasks/{task}', [TaskController::class, 'update'])->whereNumber('task');
         Route::delete('/tasks/{task}', [TaskController::class, 'destroy'])->whereNumber('task');
+        Route::post('/tasks/{task}/assignments', [TaskAssignmentController::class, 'store'])->whereNumber('task');
     });
 });
