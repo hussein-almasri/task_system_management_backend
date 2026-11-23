@@ -4,6 +4,7 @@
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\DepartmentController;
 use App\Http\Controllers\RoleController;
+use App\Http\Controllers\TaskController;
 use App\Http\Controllers\UserController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
@@ -34,5 +35,16 @@ Route::middleware(['auth:sanctum', 'active'])->group(function () {
         Route::put('/departments/{department}', [DepartmentController::class, 'update'])->whereNumber('department');
 
         Route::get('/roles', [RoleController::class, 'index']);
+    });
+
+    Route::middleware('role:admin,department_manager,employee')->group(function () {
+        Route::get('/tasks', [TaskController::class, 'index']);
+        Route::get('/tasks/{task}', [TaskController::class, 'show'])->whereNumber('task');
+    });
+
+    Route::middleware('role:admin,department_manager')->group(function () {
+        Route::post('/tasks', [TaskController::class, 'store']);
+        Route::put('/tasks/{task}', [TaskController::class, 'update'])->whereNumber('task');
+        Route::delete('/tasks/{task}', [TaskController::class, 'destroy'])->whereNumber('task');
     });
 });

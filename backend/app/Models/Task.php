@@ -21,6 +21,11 @@ class Task extends Model
         return $this->belongsTo(User::class, 'created_by');
     }
 
+    public function department()
+    {
+        return $this->belongsTo(Department::class);
+    }
+
     public function histories()
     {
         return $this->hasMany(TaskHistory::class, 'task_id');
